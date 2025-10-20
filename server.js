@@ -8,7 +8,19 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// PostgreSQL no Render
+// Configura CORS para permitir requisições do seu frontend no Vercel
+app.use(cors({
+  origin: ['https://fabrica-superodss.vercel.app', 'http://localhost:3000'],
+  credentials: true
+}));
+
+app.use(express.json());
+
+// Servir frontend estático (opcional — você pode manter no Vercel)
+// Se quiser tudo em um só lugar, descomente a linha abaixo e coloque seu index.html na raiz
+// app.use(express.static(path.join(__dirname, 'public')));
+
+// Conexão com PostgreSQL (Render fornece DATABASE_URL automaticamente)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -16,9 +28,26 @@ const pool = new Pool({
   }
 });
 
-app.use(cors());
-app.use(express.json());
-app.use(express.static('.')); // serve index.html
+// Função para garantir que a tabela exista
+async function ensureUsersTable() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        enabled BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    console.log('✅ Tabela "users" verificada/criada com sucesso.');
+  } catch (err) {
+    console.error('❌ Erro ao criar tabela:', err);
+  } finally {
+    client.release();
+  }
+}
 
 // Registrar
 app.post('/api/register', async (req, res) => {
@@ -29,17 +58,13 @@ app.post('/api/register', async (req, res) => {
   try {
     const hashed = await bcrypt.hash(password, 10);
     await pool.query(
-      'INSERT INTO users (email, password, enabled) VALUES ($1, $2, false)',
+      'INSERT INTO users (email, password, enabled) VALUES ($1, $2, false) ON CONFLICT (email) DO NOTHING',
       [email, hashed]
     );
     res.json({ success: true, message: 'Conta criada! Aguarde liberação do administrador.' });
   } catch (e) {
-    if (e.code === '23505') {
-      res.status(400).json({ success: false, message: 'Email já cadastrado.' });
-    } else {
-      console.error(e);
-      res.status(500).json({ success: false, message: 'Erro interno.' });
-    }
+    console.error(e);
+    res.status(500).json({ success: false, message: 'Erro interno.' });
   }
 });
 
@@ -64,7 +89,7 @@ app.get('/api/users', async (req, res) => {
 app.patch('/api/users/:email', async (req, res) => {
   const { enabled } = req.body;
   const result = await pool.query(
-    'UPDATE users SET enabled = $1 WHERE email = $2 RETURNING *',
+    'UPDATE users SET enabled = $1 WHERE email = $2',
     [!!enabled, req.params.email]
   );
   if (result.rowCount === 0) {
@@ -82,6 +107,11 @@ app.delete('/api/users/:email', async (req, res) => {
   res.json({ success: true, message: 'Usuário removido.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
-});
+// Inicializa o servidor
+(async () => {
+  await ensureUsersTable();
+  app.listen(PORT, () => {
+    console.log(`✅ Backend rodando em: http://localhost:${PORT}`);
+    console.log(`🌐 Aceitando requisições de: https://fabrica-superodss.vercel.app`);
+  });
+})();
