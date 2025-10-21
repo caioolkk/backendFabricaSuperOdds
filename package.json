@@ -1,5 +1,5 @@
 {
-  "name": "fabrica-super-odd",
+  "name": "backend-fabrica-super-odd",
   "version": "1.0.0",
   "scripts": {
     "start": "node server.js"
@@ -9,5 +9,8 @@
     "bcrypt": "^5.1.1",
     "pg": "^8.11.3",
     "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.18.0 <23.0.0"
   }
 }
