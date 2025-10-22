@@ -24,17 +24,14 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000
 });
 
-// Configuração de CORS — REMOVIDOS ESPAÇOS!
-const corsOptions = {
-  origin: [
-    'https://fabrica-superodss.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-app.use(cors(corsOptions));
+// ==============================
+// 🚀 CORS TOTALMENTE LIBERADO
+// ==============================
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json({ limit: '10mb' }));
 
 // Cria a tabela de usuários se não existir
@@ -61,7 +58,7 @@ async function ensureUsersTable() {
 
 // Middleware de validação
 function validateEmail(email) {
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
   return re.test(String(email).toLowerCase());
 }
 
@@ -212,7 +209,7 @@ app.get('/', (req, res) => {
     await ensureUsersTable();
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Backend rodando na porta ${PORT}`);
-      console.log(`🌐 Aceitando requisições de: https://fabrica-superodss.vercel.app`);
+      console.log(`🌐 CORS: totalmente liberado`);
     });
   } catch (err) {
     console.error('❌ Falha crítica ao iniciar o servidor:', err);
