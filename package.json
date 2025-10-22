@@ -2,7 +2,6 @@
   "name": "backend-fabrica-super-odds",
   "version": "1.0.0",
   "description": "Backend Fábrica Super Odds (PostgreSQL)",
-  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
