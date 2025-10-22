@@ -58,7 +58,7 @@ async function ensureUsersTable() {
 
 // Middleware de validação
 function validateEmail(email) {
-  const re = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return re.test(String(email).toLowerCase());
 }
 
@@ -146,7 +146,13 @@ app.get('/api/users', async (req, res) => {
 // Liberar/bloquear usuário
 app.patch('/api/users/:email', async (req, res) => {
   const { enabled } = req.body;
-  const email = req.params.email;
+  let email = req.params.email;
+
+  try {
+    email = decodeURIComponent(email);
+  } catch (e) {
+    return res.status(400).json({ success: false, message: 'Email inválido (falha na decodificação).' });
+  }
 
   if (!validateEmail(email)) {
     return res.status(400).json({ success: false, message: 'Email inválido.' });
@@ -172,7 +178,13 @@ app.patch('/api/users/:email', async (req, res) => {
 
 // Apagar usuário
 app.delete('/api/users/:email', async (req, res) => {
-  const email = req.params.email;
+  let email = req.params.email;
+
+  try {
+    email = decodeURIComponent(email);
+  } catch (e) {
+    return res.status(400).json({ success: false, message: 'Email inválido (falha na decodificação).' });
+  }
 
   if (!validateEmail(email)) {
     return res.status(400).json({ success: false, message: 'Email inválido.' });
