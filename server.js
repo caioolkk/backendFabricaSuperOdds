@@ -1,104 +1,107 @@
 import express from "express";
 import cors from "cors";
-import mongoose from "mongoose";
+import pkg from "pg";
+
+const { Pool } = pkg;
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ===== Middleware =====
-app.use(express.json());
+// === Conexão com PostgreSQL ===
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL, // variável de ambiente do Render
+  ssl: process.env.RENDER ? { rejectUnauthorized: false } : false
+});
 
-// === CORS TOTALMENTE LIBERADO ===
-app.use(cors()); // permite qualquer origem
+// === Middlewares ===
+app.use(express.json());
+app.use(cors());
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*"); // permite qualquer site
-  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
   next();
 });
 
-// ===== Conexão com MongoDB =====
-const MONGO_URI = process.env.MONGO_URI || "mongodb+srv://<USUARIO>:<SENHA>@<CLUSTER>/fabricasuperodds?retryWrites=true&w=majority";
-
-mongoose.connect(MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
-})
-.then(() => console.log("✅ Conectado ao MongoDB"))
-.catch(err => console.error("❌ Erro ao conectar ao MongoDB:", err));
-
-// ===== Modelo =====
-const userSchema = new mongoose.Schema({
-  email: String,
-  enabled: { type: Boolean, default: null }
-});
-
-const User = mongoose.model("User", userSchema);
-
-// ===== Rotas =====
-
-// health check
+// === Rotas básicas ===
 app.get("/health", (req, res) => {
   res.json({ status: "ok", uptime: process.uptime() });
 });
 
-// obter todos os usuários
+// === Buscar todos os usuários ===
 app.get("/api/users", async (req, res) => {
   try {
-    const users = await User.find();
-    res.json(users);
-  } catch (err) {
-    console.error("Erro ao buscar usuários:", err);
+    const result = await pool.query("SELECT * FROM users ORDER BY id ASC");
+    res.json(result.rows);
+  } catch (error) {
+    console.error("Erro ao buscar usuários:", error);
     res.status(500).json({ error: "Erro ao buscar usuários" });
   }
 });
 
-// criar usuário
+// === Criar novo usuário ===
 app.post("/api/users", async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: "Email é obrigatório" });
-    const user = new User({ email });
-    await user.save();
-    res.status(201).json(user);
-  } catch (err) {
-    console.error("Erro ao criar usuário:", err);
+
+    const result = await pool.query(
+      "INSERT INTO users (email, enabled) VALUES ($1, NULL) RETURNING *",
+      [email]
+    );
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao criar usuário:", error);
     res.status(500).json({ error: "Erro ao criar usuário" });
   }
 });
 
-// atualizar status de usuário (liberar/bloquear)
-app.patch("/api/users/:email", async (req, res) => {
+// === Liberar usuário ===
+app.patch("/api/users/liberar/:email", async (req, res) => {
   try {
     const { email } = req.params;
-    const { enabled } = req.body;
-    const user = await User.findOneAndUpdate(
-      { email },
-      { enabled },
-      { new: true }
+    const result = await pool.query(
+      "UPDATE users SET enabled = TRUE WHERE email = $1 RETURNING *",
+      [email]
     );
-    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
-    res.json(user);
-  } catch (err) {
-    console.error("Erro ao atualizar usuário:", err);
-    res.status(500).json({ error: "Erro ao atualizar usuário" });
+    if (result.rowCount === 0) return res.status(404).json({ error: "Usuário não encontrado" });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao liberar usuário:", error);
+    res.status(500).json({ error: "Erro ao liberar usuário" });
   }
 });
 
-// deletar usuário
+// === Bloquear usuário ===
+app.patch("/api/users/bloquear/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+    const result = await pool.query(
+      "UPDATE users SET enabled = FALSE WHERE email = $1 RETURNING *",
+      [email]
+    );
+    if (result.rowCount === 0) return res.status(404).json({ error: "Usuário não encontrado" });
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error("Erro ao bloquear usuário:", error);
+    res.status(500).json({ error: "Erro ao bloquear usuário" });
+  }
+});
+
+// === Excluir usuário ===
 app.delete("/api/users/:email", async (req, res) => {
   try {
     const { email } = req.params;
-    const deleted = await User.findOneAndDelete({ email });
-    if (!deleted) return res.status(404).json({ error: "Usuário não encontrado" });
+    const result = await pool.query("DELETE FROM users WHERE email = $1 RETURNING *", [email]);
+    if (result.rowCount === 0) return res.status(404).json({ error: "Usuário não encontrado" });
     res.json({ success: true });
-  } catch (err) {
-    console.error("Erro ao deletar usuário:", err);
-    res.status(500).json({ error: "Erro ao deletar usuário" });
+  } catch (error) {
+    console.error("Erro ao excluir usuário:", error);
+    res.status(500).json({ error: "Erro ao excluir usuário" });
   }
 });
 
-// ===== Inicialização =====
+// === Inicialização ===
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
