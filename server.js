@@ -34,6 +34,10 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 
+// ==============================
+// 🧱 CRIAÇÃO DAS TABELAS
+// ==============================
+
 // Cria a tabela de usuários se não existir
 async function ensureUsersTable() {
   const client = await pool.connect();
@@ -49,8 +53,35 @@ async function ensureUsersTable() {
     `);
     console.log('✅ Tabela "users" verificada/criada com sucesso.');
   } catch (err) {
-    console.error('❌ Erro ao criar tabela:', err);
+    console.error('❌ Erro ao criar tabela users:', err);
     throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// Cria a tabela de registros (planilha)
+async function ensureRecordsTable() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS records (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL,
+        data DATE NOT NULL,
+        casa TEXT,
+        descricao TEXT,
+        observacoes TEXT,
+        mercado TEXT,
+        situacao TEXT,
+        lucro NUMERIC(10,2),
+        qtd_contas INTEGER,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    console.log('✅ Tabela "records" verificada/criada com sucesso.');
+  } catch (err) {
+    console.error('❌ Erro ao criar tabela records:', err);
   } finally {
     client.release();
   }
@@ -62,7 +93,9 @@ function validateEmail(email) {
   return re.test(String(email).toLowerCase());
 }
 
-// ========== ROTAS ==========
+// ==============================
+// 🔐 ROTAS DE AUTENTICAÇÃO
+// ==============================
 
 // Registrar usuário
 app.post('/api/register', async (req, res) => {
@@ -205,12 +238,59 @@ app.delete('/api/users/:email', async (req, res) => {
   }
 });
 
-// Health check
+// ==============================
+// 🧾 ROTAS DE REGISTROS (PLANILHA)
+// ==============================
+
+// Salvar registro da planilha
+app.post('/api/records', async (req, res) => {
+  const { email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas } = req.body;
+
+  if (!email || !data) {
+    return res.status(400).json({ success: false, message: 'Email e data são obrigatórios.' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO records (email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtd_contas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas]
+    );
+    console.log(`📊 Registro salvo por ${email}: ${descricao}`);
+    return res.json({ success: true, message: 'Registro salvo com sucesso!' });
+  } catch (e) {
+    console.error('Erro ao salvar registro:', e);
+    return res.status(500).json({ success: false, message: 'Erro interno ao salvar registro.' });
+  }
+});
+
+// Listar registros da planilha (somente do usuário)
+app.get('/api/records', async (req, res) => {
+  const email = req.query.email;
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email não informado.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT * FROM records WHERE email = $1 ORDER BY data DESC',
+      [email]
+    );
+    return res.json({ success: true, records: result.rows });
+  } catch (e) {
+    console.error('Erro ao buscar registros:', e);
+    return res.status(500).json({ success: false, message: 'Erro ao carregar registros.' });
+  }
+});
+
+// ==============================
+// 🩺 HEALTH CHECK
+// ==============================
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', uptime: Math.floor(process.uptime()) });
 });
 
-// Rota raiz (opcional)
+// Rota raiz
 app.get('/', (req, res) => {
   res.json({ message: 'Backend Fábrica Super Odd — OK ✅' });
 });
@@ -219,6 +299,7 @@ app.get('/', (req, res) => {
 (async () => {
   try {
     await ensureUsersTable();
+    await ensureRecordsTable(); // ✅ nova tabela planilha
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Backend rodando na porta ${PORT}`);
       console.log(`🌐 CORS: totalmente liberado`);
