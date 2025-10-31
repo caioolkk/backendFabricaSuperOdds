@@ -86,6 +86,26 @@ async function ensureRecordsTable() {
     client.release();
   }
 }
+// Cria a tabela de anotações (notes)
+async function ensureNotesTable() {
+  const client = await pool.connect();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS notes (
+        id SERIAL PRIMARY KEY,
+        email TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+    `);
+    console.log('✅ Tabela "notes" verificada/criada com sucesso.');
+  } catch (err) {
+    console.error('❌ Erro ao criar tabela notes:', err);
+  } finally {
+    client.release();
+  }
+}
 
 // Middleware de validação
 function validateEmail(email) {
@@ -263,9 +283,12 @@ app.post('/api/records', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erro interno ao salvar registro.' });
   }
 });
+// =============
+// 📝 ANOTAÇÕES
+// =============
 
-// Listar registros da planilha (somente do usuário)
-app.get('/api/records', async (req, res) => {
+// Listar anotações do usuário
+app.get('/api/notes', async (req, res) => {
   const email = req.query.email;
   if (!email) {
     return res.status(400).json({ success: false, message: 'Email não informado.' });
@@ -273,9 +296,121 @@ app.get('/api/records', async (req, res) => {
 
   try {
     const result = await pool.query(
-      'SELECT * FROM records WHERE email = $1 ORDER BY data DESC',
+      'SELECT id, content, created_at FROM notes WHERE email = $1 ORDER BY created_at DESC',
       [email]
     );
+    return res.json({ success: true, notes: result.rows });
+  } catch (e) {
+    console.error('Erro ao buscar anotações:', e);
+    return res.status(500).json({ success: false, message: 'Erro ao carregar anotações.' });
+  }
+});
+
+// Criar nova anotação
+app.post('/api/notes', async (req, res) => {
+  const { email, content } = req.body;
+
+  if (!email || !content || content.trim() === '') {
+    return res.status(400).json({ success: false, message: 'Email e conteúdo são obrigatórios.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'INSERT INTO notes (email, content) VALUES ($1, $2) RETURNING *',
+      [email, content.trim()]
+    );
+    return res.json({ success: true, note: result.rows[0] });
+  } catch (e) {
+    console.error('Erro ao salvar anotação:', e);
+    return res.status(500).json({ success: false, message: 'Erro ao salvar anotação.' });
+  }
+});
+
+// Excluir anotação
+app.delete('/api/notes/:id', async (req, res) => {
+  const { id } = req.params;
+  const email = req.query.email;
+
+  if (!email || !id) {
+    return res.status(400).json({ success: false, message: 'Email e ID são obrigatórios.' });
+  }
+
+  try {
+    const result = await pool.query(
+      'DELETE FROM notes WHERE id = $1 AND email = $2',
+      [id, email]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Anotação não encontrada ou acesso negado.' });
+    }
+
+    return res.json({ success: true });
+  } catch (e) {
+    console.error('Erro ao excluir anotação:', e);
+    return res.status(500).json({ success: false, message: 'Erro ao excluir anotação.' });
+  }
+});
+
+// Listar registros da planilha com filtros (somente do usuário)
+app.get('/api/records', async (req, res) => {
+  const email = req.query.email;
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email não informado.' });
+  }
+
+  let query = 'SELECT * FROM records WHERE email = $1';
+  const params = [email];
+  let paramIndex = 2;
+
+  // Filtros opcionais
+  if (req.query.day) {
+    query += ` AND EXTRACT(DAY FROM data) = $${paramIndex}`;
+    params.push(req.query.day);
+    paramIndex++;
+  }
+  if (req.query.month) {
+    query += ` AND EXTRACT(MONTH FROM data) = $${paramIndex}`;
+    // Converte nome do mês para número
+    const months = {
+      'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
+      'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
+    };
+    params.push(months[req.query.month] || 0);
+    paramIndex++;
+  }
+  if (req.query.year) {
+    query += ` AND EXTRACT(YEAR FROM data) = $${paramIndex}`;
+    params.push(req.query.year);
+    paramIndex++;
+  }
+  if (req.query.casa) {
+    query += ` AND LOWER(casa) LIKE LOWER($${paramIndex})`;
+    params.push(`%${req.query.casa}%`);
+    paramIndex++;
+  }
+  if (req.query.mercado && req.query.mercado !== 'Todos') {
+    query += ` AND mercado = $${paramIndex}`;
+    params.push(req.query.mercado);
+    paramIndex++;
+  }
+  if (req.query.situacao && req.query.situacao !== 'Todas') {
+    query += ` AND situacao = $${paramIndex}`;
+    params.push(req.query.situacao);
+    paramIndex++;
+  }
+  if (req.query.freebets && req.query.freebets !== 'Todos') {
+    if (req.query.freebets === 'UTILIZADA') {
+      query += ` AND lucro > 0`;
+    } else if (req.query.freebets === 'EM ABERTO') {
+      query += ` AND lucro <= 0`;
+    }
+  }
+
+  query += ' ORDER BY data DESC';
+
+  try {
+    const result = await pool.query(query, params);
     return res.json({ success: true, records: result.rows });
   } catch (e) {
     console.error('Erro ao buscar registros:', e);
