@@ -86,6 +86,7 @@ async function ensureRecordsTable() {
     client.release();
   }
 }
+
 // Cria a tabela de anotações (notes)
 async function ensureNotesTable() {
   const client = await pool.connect();
@@ -261,8 +262,6 @@ app.delete('/api/users/:email', async (req, res) => {
 // ==============================
 // 🧾 ROTAS DE REGISTROS (PLANILHA)
 // ==============================
-
-// Salvar registro da planilha
 app.post('/api/records', async (req, res) => {
   const { email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas } = req.body;
 
@@ -283,16 +282,13 @@ app.post('/api/records', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erro interno ao salvar registro.' });
   }
 });
-// =============
-// 📝 ANOTAÇÕES
-// =============
 
-// Listar anotações do usuário
+// ==============================
+// 📝 ANOTAÇÕES
+// ==============================
 app.get('/api/notes', async (req, res) => {
   const email = req.query.email;
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Email não informado.' });
-  }
+  if (!email) return res.status(400).json({ success: false, message: 'Email não informado.' });
 
   try {
     const result = await pool.query(
@@ -306,10 +302,8 @@ app.get('/api/notes', async (req, res) => {
   }
 });
 
-// Criar nova anotação
 app.post('/api/notes', async (req, res) => {
   const { email, content } = req.body;
-
   if (!email || !content || content.trim() === '') {
     return res.status(400).json({ success: false, message: 'Email e conteúdo são obrigatórios.' });
   }
@@ -326,7 +320,6 @@ app.post('/api/notes', async (req, res) => {
   }
 });
 
-// Excluir anotação
 app.delete('/api/notes/:id', async (req, res) => {
   const { id } = req.params;
   const email = req.query.email;
@@ -352,59 +345,48 @@ app.delete('/api/notes/:id', async (req, res) => {
   }
 });
 
-// Listar registros da planilha com filtros (somente do usuário)
+// ==============================
+// 🔍 FILTROS PLANILHA
+// ==============================
 app.get('/api/records', async (req, res) => {
   const email = req.query.email;
-  if (!email) {
-    return res.status(400).json({ success: false, message: 'Email não informado.' });
-  }
+  if (!email) return res.status(400).json({ success: false, message: 'Email não informado.' });
 
   let query = 'SELECT * FROM records WHERE email = $1';
   const params = [email];
   let paramIndex = 2;
 
-  // Filtros opcionais
   if (req.query.day) {
-    query += ` AND EXTRACT(DAY FROM data) = $${paramIndex}`;
+    query += ` AND EXTRACT(DAY FROM data) = $${paramIndex++}`;
     params.push(req.query.day);
-    paramIndex++;
   }
   if (req.query.month) {
-    query += ` AND EXTRACT(MONTH FROM data) = $${paramIndex}`;
-    // Converte nome do mês para número
     const months = {
       'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
       'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
     };
+    query += ` AND EXTRACT(MONTH FROM data) = $${paramIndex++}`;
     params.push(months[req.query.month] || 0);
-    paramIndex++;
   }
   if (req.query.year) {
-    query += ` AND EXTRACT(YEAR FROM data) = $${paramIndex}`;
+    query += ` AND EXTRACT(YEAR FROM data) = $${paramIndex++}`;
     params.push(req.query.year);
-    paramIndex++;
   }
   if (req.query.casa) {
-    query += ` AND LOWER(casa) LIKE LOWER($${paramIndex})`;
+    query += ` AND LOWER(casa) LIKE LOWER($${paramIndex++})`;
     params.push(`%${req.query.casa}%`);
-    paramIndex++;
   }
   if (req.query.mercado && req.query.mercado !== 'Todos') {
-    query += ` AND mercado = $${paramIndex}`;
+    query += ` AND mercado = $${paramIndex++}`;
     params.push(req.query.mercado);
-    paramIndex++;
   }
   if (req.query.situacao && req.query.situacao !== 'Todas') {
-    query += ` AND situacao = $${paramIndex}`;
+    query += ` AND situacao = $${paramIndex++}`;
     params.push(req.query.situacao);
-    paramIndex++;
   }
   if (req.query.freebets && req.query.freebets !== 'Todos') {
-    if (req.query.freebets === 'UTILIZADA') {
-      query += ` AND lucro > 0`;
-    } else if (req.query.freebets === 'EM ABERTO') {
-      query += ` AND lucro <= 0`;
-    }
+    if (req.query.freebets === 'UTILIZADA') query += ` AND lucro > 0`;
+    else if (req.query.freebets === 'EM ABERTO') query += ` AND lucro <= 0`;
   }
 
   query += ' ORDER BY data DESC';
@@ -430,11 +412,15 @@ app.get('/', (req, res) => {
   res.json({ message: 'Backend Fábrica Super Odd — OK ✅' });
 });
 
-// Inicializa o servidor
+// ==============================
+// 🚀 INICIALIZAÇÃO
+// ==============================
 (async () => {
   try {
     await ensureUsersTable();
-    await ensureRecordsTable(); // ✅ nova tabela planilha
+    await ensureRecordsTable();
+    await ensureNotesTable(); // ✅ agora cria a tabela de anotações também
+
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Backend rodando na porta ${PORT}`);
       console.log(`🌐 CORS: totalmente liberado`);
