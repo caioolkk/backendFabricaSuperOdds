@@ -282,6 +282,27 @@ app.post('/api/records', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erro interno ao salvar registro.' });
   }
 });
+// ==============================
+// 🗑️ EXCLUIR REGISTRO POR ID
+// ==============================
+app.delete('/api/records/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const result = await pool.query('DELETE FROM records WHERE id = $1', [id]);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, message: 'Registro não encontrado.' });
+    }
+
+    console.log(`🗑️ Registro excluído (ID: ${id})`);
+    return res.json({ success: true, message: 'Registro excluído com sucesso.' });
+  } catch (e) {
+    console.error('Erro ao excluir registro:', e);
+    return res.status(500).json({ success: false, message: 'Erro ao excluir registro.' });
+  }
+});
+
 
 // ==============================
 // 📝 ANOTAÇÕES
@@ -344,6 +365,7 @@ app.delete('/api/notes/:id', async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erro ao excluir anotação.' });
   }
 });
+
 
 // ==============================
 // 🔍 FILTROS PLANILHA
