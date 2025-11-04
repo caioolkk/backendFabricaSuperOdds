@@ -1,4 +1,4 @@
-// server.js
+// server.js - VERSÃO CORRIGIDA E SEGUURA
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
@@ -29,10 +29,26 @@ const pool = new Pool({
 // ==============================
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(express.json({ limit: '10mb' }));
+
+// Middleware de validação de email
+function validateEmail(email) {
+  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return re.test(String(email).toLowerCase());
+}
+
+// Middleware de tratamento global de erros (garante que sempre retorne JSON)
+app.use((err, req, res, next) => {
+  console.error('❌ Erro global capturado:', err);
+  res.status(500).json({
+    success: false,
+    message: 'Erro interno do servidor',
+    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
 
 // ==============================
 // 🧱 CRIAÇÃO DAS TABELAS
@@ -82,6 +98,7 @@ async function ensureRecordsTable() {
     console.log('✅ Tabela "records" verificada/criada com sucesso.');
   } catch (err) {
     console.error('❌ Erro ao criar tabela records:', err);
+    throw err;
   } finally {
     client.release();
   }
@@ -103,15 +120,10 @@ async function ensureNotesTable() {
     console.log('✅ Tabela "notes" verificada/criada com sucesso.');
   } catch (err) {
     console.error('❌ Erro ao criar tabela notes:', err);
+    throw err;
   } finally {
     client.release();
   }
-}
-
-// Middleware de validação
-function validateEmail(email) {
-  const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return re.test(String(email).toLowerCase());
 }
 
 // ==============================
@@ -149,7 +161,11 @@ app.post('/api/register', async (req, res) => {
     return res.json({ success: true, message: 'Conta criada! Aguarde liberação do administrador.' });
   } catch (e) {
     console.error('Erro ao registrar usuário:', e);
-    return res.status(500).json({ success: false, message: 'Erro interno ao criar conta.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro interno ao criar conta.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
@@ -182,7 +198,11 @@ app.post('/api/login', async (req, res) => {
     return res.json({ success: true, message: 'Login bem-sucedido!' });
   } catch (e) {
     console.error('Erro ao fazer login:', e);
-    return res.status(500).json({ success: false, message: 'Erro interno ao autenticar.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro interno ao autenticar.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
@@ -193,7 +213,11 @@ app.get('/api/users', async (req, res) => {
     return res.json({ success: true, users: result.rows });
   } catch (e) {
     console.error('Erro ao listar usuários:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao carregar usuários.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao carregar usuários.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
@@ -226,7 +250,11 @@ app.patch('/api/users/:email', async (req, res) => {
     return res.json({ success: true });
   } catch (e) {
     console.error('Erro ao atualizar usuário:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao atualizar status do usuário.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao atualizar status do usuário.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
@@ -255,13 +283,19 @@ app.delete('/api/users/:email', async (req, res) => {
     return res.json({ success: true, message: 'Usuário removido com sucesso.' });
   } catch (e) {
     console.error('Erro ao apagar usuário:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao remover usuário.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao remover usuário.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
 // ==============================
 // 🧾 ROTAS DE REGISTROS (PLANILHA)
 // ==============================
+
+// Criar novo registro
 app.post('/api/records', async (req, res) => {
   const { email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas } = req.body;
 
@@ -269,47 +303,204 @@ app.post('/api/records', async (req, res) => {
     return res.status(400).json({ success: false, message: 'Email e data são obrigatórios.' });
   }
 
+  if (!validateEmail(email)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
+  }
+
   try {
     await pool.query(
       `INSERT INTO records (email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtd_contas)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas]
+      [email, data, casa || '', descricao || '', observacoes || '', mercado || 'DIRETO', situacao || 'CONCLUÍDO', 
+       lucro || 0, qtdContas || 1]
     );
-    console.log(`📊 Registro salvo por ${email}: ${descricao}`);
+    console.log(`📊 Registro salvo por ${email}: ${descricao || 'sem descrição'}`);
     return res.json({ success: true, message: 'Registro salvo com sucesso!' });
   } catch (e) {
     console.error('Erro ao salvar registro:', e);
-    return res.status(500).json({ success: false, message: 'Erro interno ao salvar registro.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro interno ao salvar registro.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
-// ==============================
-// 🗑️ EXCLUIR REGISTRO POR ID
-// ==============================
-app.delete('/api/records/:id', async (req, res) => {
+
+// Atualizar registro existente
+app.put('/api/records/:id', async (req, res) => {
   const { id } = req.params;
+  const { email, data, casa, descricao, observacoes, mercado, situacao, lucro, qtdContas } = req.body;
+
+  // Validação básica
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ success: false, message: 'ID inválido.' });
+  }
+  if (!email || !data) {
+    return res.status(400).json({ success: false, message: 'Email e data são obrigatórios.' });
+  }
+  if (!validateEmail(email)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
+  }
 
   try {
-    const result = await pool.query('DELETE FROM records WHERE id = $1', [id]);
+    // Primeiro verifica se o registro existe e pertence ao usuário
+    const checkResult = await pool.query(
+      'SELECT id FROM records WHERE id = $1 AND email = $2',
+      [id, email]
+    );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, message: 'Registro não encontrado.' });
+    if (checkResult.rows.length === 0) {
+      console.log(`❌ Tentativa de atualizar registro inexistente ou de outro usuário. ID: ${id}, Email: ${email}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Registro não encontrado ou você não tem permissão para editá-lo.'
+      });
     }
 
-    console.log(`🗑️ Registro excluído (ID: ${id})`);
-    return res.json({ success: true, message: 'Registro excluído com sucesso.' });
+    // Atualiza o registro
+    const result = await pool.query(
+      `UPDATE records 
+       SET data = $1, casa = $2, descricao = $3, observacoes = $4, mercado = $5, 
+           situacao = $6, lucro = $7, qtd_contas = $8, updated_at = NOW()
+       WHERE id = $9 AND email = $10
+       RETURNING *`,
+      [data, casa || '', descricao || '', observacoes || '', mercado || 'DIRETO', situacao || 'CONCLUÍDO',
+       lucro || 0, qtdContas || 1, id, email]
+    );
+
+    console.log(`✏️ Registro atualizado (ID: ${id}) por ${email}`);
+    return res.json({ success: true, record: result.rows[0] });
+
   } catch (e) {
-    console.error('Erro ao excluir registro:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao excluir registro.' });
+    console.error('❌ Erro ao atualizar registro:', e);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro interno ao atualizar registro.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
+// Excluir registro por ID
+app.delete('/api/records/:id', async (req, res) => {
+  const { id } = req.params;
+  const email = req.query.email; // Agora aceita o email como query param
+
+  // Validação
+  if (!id || isNaN(id)) {
+    return res.status(400).json({ success: false, message: 'ID inválido.' });
+  }
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email é obrigatório.' });
+  }
+  if (!validateEmail(email)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
+  }
+
+  try {
+    // Verifica se o registro existe e pertence ao usuário
+    const checkResult = await pool.query(
+      'SELECT id FROM records WHERE id = $1 AND email = $2',
+      [id, email]
+    );
+
+    if (checkResult.rows.length === 0) {
+      console.log(`❌ Tentativa de excluir registro inexistente ou de outro usuário. ID: ${id}, Email: ${email}`);
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Registro não encontrado ou você não tem permissão para excluí-lo.'
+      });
+    }
+
+    // Exclui o registro
+    const result = await pool.query(
+      'DELETE FROM records WHERE id = $1 AND email = $2',
+      [id, email]
+    );
+
+    console.log(`🗑️ Registro excluído (ID: ${id}) por ${email}`);
+    return res.json({ success: true, message: 'Registro excluído com sucesso.' });
+
+  } catch (e) {
+    console.error('❌ Erro ao excluir registro:', e);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao excluir registro.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
+  }
+});
+
+// Listar registros com filtros
+app.get('/api/records', async (req, res) => {
+  const email = req.query.email;
+  if (!email) return res.status(400).json({ success: false, message: 'Email não informado.' });
+  if (!validateEmail(email)) return res.status(400).json({ success: false, message: 'Email inválido.' });
+
+  try {
+    let query = 'SELECT * FROM records WHERE email = $1';
+    const params = [email];
+    let paramIndex = 2;
+
+    if (req.query.day) {
+      query += ` AND EXTRACT(DAY FROM data) = $${paramIndex++}`;
+      params.push(req.query.day);
+    }
+    if (req.query.month) {
+      const months = {
+        'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
+        'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
+      };
+      const monthNum = months[req.query.month];
+      if (monthNum) {
+        query += ` AND EXTRACT(MONTH FROM data) = $${paramIndex++}`;
+        params.push(monthNum);
+      }
+    }
+    if (req.query.year) {
+      query += ` AND EXTRACT(YEAR FROM data) = $${paramIndex++}`;
+      params.push(req.query.year);
+    }
+    if (req.query.casa) {
+      query += ` AND LOWER(casa) LIKE LOWER($${paramIndex++})`;
+      params.push(`%${req.query.casa}%`);
+    }
+    if (req.query.mercado && req.query.mercado !== 'Todos') {
+      query += ` AND mercado = $${paramIndex++}`;
+      params.push(req.query.mercado);
+    }
+    if (req.query.situacao && req.query.situacao !== 'Todas') {
+      query += ` AND situacao = $${paramIndex++}`;
+      params.push(req.query.situacao);
+    }
+    if (req.query.freebets && req.query.freebets !== 'Todos') {
+      if (req.query.freebets === 'UTILIZADA') query += ` AND lucro > 0`;
+      else if (req.query.freebets === 'EM ABERTO') query += ` AND lucro <= 0`;
+    }
+
+    query += ' ORDER BY data DESC';
+
+    const result = await pool.query(query, params);
+    return res.json({ success: true, records: result.rows });
+  } catch (e) {
+    console.error('Erro ao buscar registros:', e);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao carregar registros.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
+  }
+});
 
 // ==============================
 // 📝 ANOTAÇÕES
 // ==============================
+
+// Listar anotações
 app.get('/api/notes', async (req, res) => {
   const email = req.query.email;
   if (!email) return res.status(400).json({ success: false, message: 'Email não informado.' });
+  if (!validateEmail(email)) return res.status(400).json({ success: false, message: 'Email inválido.' });
 
   try {
     const result = await pool.query(
@@ -319,14 +510,22 @@ app.get('/api/notes', async (req, res) => {
     return res.json({ success: true, notes: result.rows });
   } catch (e) {
     console.error('Erro ao buscar anotações:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao carregar anotações.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao carregar anotações.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
+// Criar anotação
 app.post('/api/notes', async (req, res) => {
   const { email, content } = req.body;
   if (!email || !content || content.trim() === '') {
     return res.status(400).json({ success: false, message: 'Email e conteúdo são obrigatórios.' });
+  }
+  if (!validateEmail(email)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
   }
 
   try {
@@ -337,10 +536,15 @@ app.post('/api/notes', async (req, res) => {
     return res.json({ success: true, note: result.rows[0] });
   } catch (e) {
     console.error('Erro ao salvar anotação:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao salvar anotação.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao salvar anotação.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
+// Excluir anotação
 app.delete('/api/notes/:id', async (req, res) => {
   const { id } = req.params;
   const email = req.query.email;
@@ -348,77 +552,37 @@ app.delete('/api/notes/:id', async (req, res) => {
   if (!email || !id) {
     return res.status(400).json({ success: false, message: 'Email e ID são obrigatórios.' });
   }
+  if (!validateEmail(email)) {
+    return res.status(400).json({ success: false, message: 'Email inválido.' });
+  }
+  if (isNaN(id)) {
+    return res.status(400).json({ success: false, message: 'ID inválido.' });
+  }
 
   try {
+    // Verifica se a anotação pertence ao usuário
+    const checkResult = await pool.query(
+      'SELECT id FROM notes WHERE id = $1 AND email = $2',
+      [id, email]
+    );
+
+    if (checkResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Anotação não encontrada ou acesso negado.' });
+    }
+
     const result = await pool.query(
       'DELETE FROM notes WHERE id = $1 AND email = $2',
       [id, email]
     );
 
-    if (result.rowCount === 0) {
-      return res.status(404).json({ success: false, message: 'Anotação não encontrada ou acesso negado.' });
-    }
-
     return res.json({ success: true });
   } catch (e) {
     console.error('Erro ao excluir anotação:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao excluir anotação.' });
-  }
-});
-
-
-// ==============================
-// 🔍 FILTROS PLANILHA
-// ==============================
-app.get('/api/records', async (req, res) => {
-  const email = req.query.email;
-  if (!email) return res.status(400).json({ success: false, message: 'Email não informado.' });
-
-  let query = 'SELECT * FROM records WHERE email = $1';
-  const params = [email];
-  let paramIndex = 2;
-
-  if (req.query.day) {
-    query += ` AND EXTRACT(DAY FROM data) = $${paramIndex++}`;
-    params.push(req.query.day);
-  }
-  if (req.query.month) {
-    const months = {
-      'Janeiro': 1, 'Fevereiro': 2, 'Março': 3, 'Abril': 4, 'Maio': 5, 'Junho': 6,
-      'Julho': 7, 'Agosto': 8, 'Setembro': 9, 'Outubro': 10, 'Novembro': 11, 'Dezembro': 12
-    };
-    query += ` AND EXTRACT(MONTH FROM data) = $${paramIndex++}`;
-    params.push(months[req.query.month] || 0);
-  }
-  if (req.query.year) {
-    query += ` AND EXTRACT(YEAR FROM data) = $${paramIndex++}`;
-    params.push(req.query.year);
-  }
-  if (req.query.casa) {
-    query += ` AND LOWER(casa) LIKE LOWER($${paramIndex++})`;
-    params.push(`%${req.query.casa}%`);
-  }
-  if (req.query.mercado && req.query.mercado !== 'Todos') {
-    query += ` AND mercado = $${paramIndex++}`;
-    params.push(req.query.mercado);
-  }
-  if (req.query.situacao && req.query.situacao !== 'Todas') {
-    query += ` AND situacao = $${paramIndex++}`;
-    params.push(req.query.situacao);
-  }
-  if (req.query.freebets && req.query.freebets !== 'Todos') {
-    if (req.query.freebets === 'UTILIZADA') query += ` AND lucro > 0`;
-    else if (req.query.freebets === 'EM ABERTO') query += ` AND lucro <= 0`;
-  }
-
-  query += ' ORDER BY data DESC';
-
-  try {
-    const result = await pool.query(query, params);
-    return res.json({ success: true, records: result.rows });
-  } catch (e) {
-    console.error('Erro ao buscar registros:', e);
-    return res.status(500).json({ success: false, message: 'Erro ao carregar registros.' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Erro ao excluir anotação.',
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined
+    });
   }
 });
 
@@ -426,12 +590,21 @@ app.get('/api/records', async (req, res) => {
 // 🩺 HEALTH CHECK
 // ==============================
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok', uptime: Math.floor(process.uptime()) });
+  res.status(200).json({ 
+    status: 'ok', 
+    uptime: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+    nodeVersion: process.version
+  });
 });
 
 // Rota raiz
 app.get('/', (req, res) => {
-  res.json({ message: 'Backend Fábrica Super Odd — OK ✅' });
+  res.json({ 
+    message: 'Backend Fábrica Super Odd — OK ✅',
+    version: '1.2.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
 });
 
 // ==============================
@@ -439,16 +612,38 @@ app.get('/', (req, res) => {
 // ==============================
 (async () => {
   try {
+    console.log('🚀 Iniciando servidor...');
+    console.log(`🔌 Conectando ao PostgreSQL: ${process.env.DATABASE_URL ? 'URL configurada' : 'URL NÃO CONFIGURADA'}`);
+    
     await ensureUsersTable();
     await ensureRecordsTable();
-    await ensureNotesTable(); // ✅ agora cria a tabela de anotações também
+    await ensureNotesTable();
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`✅ Backend rodando na porta ${PORT}`);
       console.log(`🌐 CORS: totalmente liberado`);
+      console.log(`🔍 Ambiente: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔗 URL base: ${process.env.BASE_URL || 'http://localhost:' + PORT}`);
     });
   } catch (err) {
     console.error('❌ Falha crítica ao iniciar o servidor:', err);
     process.exit(1);
   }
 })();
+
+// Tratamento de sinais para encerramento gracioso
+process.on('SIGTERM', () => {
+  console.log('🛑 Recebido SIGTERM. Encerrando...');
+  pool.end().then(() => {
+    console.log('🔌 Conexões com o banco encerradas');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 Recebido SIGINT. Encerrando...');
+  pool.end().then(() => {
+    console.log('🔌 Conexões com o banco encerradas');
+    process.exit(0);
+  });
+});
