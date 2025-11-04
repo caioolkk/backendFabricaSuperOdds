@@ -1,4 +1,4 @@
-// server.js - VERSÃO CORRIGIDA E SEGUURA
+// server.js - VERSÃO CORRIGIDA E SEGURO
 const express = require('express');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
@@ -357,11 +357,11 @@ app.put('/api/records/:id', async (req, res) => {
       });
     }
 
-    // Atualiza o registro
+    // Atualiza o registro - REMOVIDO updated_at que não existe na tabela
     const result = await pool.query(
       `UPDATE records 
        SET data = $1, casa = $2, descricao = $3, observacoes = $4, mercado = $5, 
-           situacao = $6, lucro = $7, qtd_contas = $8, updated_at = NOW()
+           situacao = $6, lucro = $7, qtd_contas = $8
        WHERE id = $9 AND email = $10
        RETURNING *`,
       [data, casa || '', descricao || '', observacoes || '', mercado || 'DIRETO', situacao || 'CONCLUÍDO',
@@ -384,16 +384,19 @@ app.put('/api/records/:id', async (req, res) => {
 // Excluir registro por ID
 app.delete('/api/records/:id', async (req, res) => {
   const { id } = req.params;
-  const email = req.query.email; // Agora aceita o email como query param
+  const { email } = req.body; // Agora aceita o email no corpo da requisição
+  const emailFromQuery = req.query.email; // Também aceita email como query param como fallback
+
+  const userEmail = email || emailFromQuery;
 
   // Validação
   if (!id || isNaN(id)) {
     return res.status(400).json({ success: false, message: 'ID inválido.' });
   }
-  if (!email) {
+  if (!userEmail) {
     return res.status(400).json({ success: false, message: 'Email é obrigatório.' });
   }
-  if (!validateEmail(email)) {
+  if (!validateEmail(userEmail)) {
     return res.status(400).json({ success: false, message: 'Email inválido.' });
   }
 
@@ -401,11 +404,11 @@ app.delete('/api/records/:id', async (req, res) => {
     // Verifica se o registro existe e pertence ao usuário
     const checkResult = await pool.query(
       'SELECT id FROM records WHERE id = $1 AND email = $2',
-      [id, email]
+      [id, userEmail]
     );
 
     if (checkResult.rows.length === 0) {
-      console.log(`❌ Tentativa de excluir registro inexistente ou de outro usuário. ID: ${id}, Email: ${email}`);
+      console.log(`❌ Tentativa de excluir registro inexistente ou de outro usuário. ID: ${id}, Email: ${userEmail}`);
       return res.status(404).json({ 
         success: false, 
         message: 'Registro não encontrado ou você não tem permissão para excluí-lo.'
@@ -415,10 +418,10 @@ app.delete('/api/records/:id', async (req, res) => {
     // Exclui o registro
     const result = await pool.query(
       'DELETE FROM records WHERE id = $1 AND email = $2',
-      [id, email]
+      [id, userEmail]
     );
 
-    console.log(`🗑️ Registro excluído (ID: ${id}) por ${email}`);
+    console.log(`🗑️ Registro excluído (ID: ${id}) por ${userEmail}`);
     return res.json({ success: true, message: 'Registro excluído com sucesso.' });
 
   } catch (e) {
@@ -547,12 +550,14 @@ app.post('/api/notes', async (req, res) => {
 // Excluir anotação
 app.delete('/api/notes/:id', async (req, res) => {
   const { id } = req.params;
-  const email = req.query.email;
+  const { email } = req.body;
+  const emailFromQuery = req.query.email;
+  const userEmail = email || emailFromQuery;
 
-  if (!email || !id) {
+  if (!userEmail || !id) {
     return res.status(400).json({ success: false, message: 'Email e ID são obrigatórios.' });
   }
-  if (!validateEmail(email)) {
+  if (!validateEmail(userEmail)) {
     return res.status(400).json({ success: false, message: 'Email inválido.' });
   }
   if (isNaN(id)) {
@@ -563,7 +568,7 @@ app.delete('/api/notes/:id', async (req, res) => {
     // Verifica se a anotação pertence ao usuário
     const checkResult = await pool.query(
       'SELECT id FROM notes WHERE id = $1 AND email = $2',
-      [id, email]
+      [id, userEmail]
     );
 
     if (checkResult.rows.length === 0) {
@@ -572,7 +577,7 @@ app.delete('/api/notes/:id', async (req, res) => {
 
     const result = await pool.query(
       'DELETE FROM notes WHERE id = $1 AND email = $2',
-      [id, email]
+      [id, userEmail]
     );
 
     return res.json({ success: true });
